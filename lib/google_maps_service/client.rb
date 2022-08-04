@@ -1,4 +1,4 @@
-require 'hurley'
+require 'net/http'
 require 'multi_json'
 require 'retriable'
 require 'thread'
@@ -100,28 +100,13 @@ module GoogleMapsService
     # @option options [String] :client_secret Client secret for using Maps API for Work services.
     # @option options [Integer] :retry_timeout Timeout across multiple retriable requests, in seconds.
     # @option options [Integer] :queries_per_second Number of queries per second permitted.
-    #
-    # @option options [Hurley::RequestOptions] :request_options HTTP client request options.
-    #     See https://github.com/lostisland/hurley/blob/master/lib/hurley/options.rb.
-    # @option options [Hurley::SslOptions] :ssl_options HTTP client SSL options.
-    #     See https://github.com/lostisland/hurley/blob/master/lib/hurley/options.rb.
-    # @option options [Object] :connection HTTP client connection.
-    #     By default, the default Hurley's HTTP client connection (Net::Http) will be used.
-    #     See https://github.com/lostisland/hurley/blob/master/README.md#connections.
     def initialize(**options)
       [:key, :client_id, :client_secret,
-          :retry_timeout, :queries_per_second,
-          :request_options, :ssl_options, :connection].each do |key|
+          :retry_timeout, :queries_per_second].each do |key|
         self.instance_variable_set("@#{key}".to_sym, options[key] || GoogleMapsService.instance_variable_get("@#{key}"))
       end
 
       initialize_query_tickets
-    end
-
-    # Get the current HTTP client.
-    # @return [Hurley::Client]
-    def client
-      @client ||= new_client
     end
 
     protected
@@ -134,21 +119,6 @@ module GoogleMapsService
           @qps_queue << 0
         end
       end
-    end
-
-    # Create a new HTTP client.
-    # @return [Hurley::Client]
-    def new_client
-      client = Hurley::Client.new
-      client.request_options.query_class = Hurley::Query::Flat
-      client.request_options.redirection_limit = 0
-      client.header[:user_agent] = user_agent
-
-      client.connection = @connection if @connection
-      @request_options.each_pair {|key, value| client.request_options[key] = value } if @request_options
-      @ssl_options.each_pair {|key, value| client.ssl_options[key] = value } if @ssl_options
-
-      client
     end
 
     # Build the user agent header
@@ -174,7 +144,7 @@ module GoogleMapsService
       Retriable.retriable timeout: @retry_timeout, on: RETRIABLE_ERRORS do |try|
         begin
           request_query_ticket
-          response = client.get url
+          response = Net::HTTP.get_response URI(url)
         ensure
           release_query_ticket
         end
@@ -251,7 +221,7 @@ module GoogleMapsService
     #
     # @param [Hurley::Response] response Web API response.
     def check_response_status_code(response)
-      case response.status_code
+      case response.code
       when 200..300
         # Do-nothing
       when 301, 302, 303, 307
